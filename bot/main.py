@@ -8,6 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from bot.config import BOT_TOKEN, RACE_START_TIME
 from bot.logger import setup_logger
 from bot.race_clock import get_race_status
+from bot.api_client import RaceDataClient
 
 # Настройка логирования
 logger = setup_logger()
@@ -39,6 +40,20 @@ async def main():
         logger.warning("RACE_START_TIME не задан в .env. Бот будет работать, но гонка не настроена.")
     else:
         logger.info(f"Время старта гонки: {RACE_START_TIME}")
+    
+    # Проверяем загрузку данных гонки
+    try:
+        api_client = RaceDataClient()
+        data = api_client.load_data()
+        logger.info(f"Данные гонки загружены: {len(data)} участников")
+        
+        # Проверяем сортировку по start_position
+        sorted_by_start = api_client.get_participants_sorted_by_start_position()
+        if sorted_by_start:
+            logger.info(f"Первый участник по стартовой позиции: {sorted_by_start[0]['team_name']} (позиция {sorted_by_start[0]['start_position']})")
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке данных гонки: {e}", exc_info=True)
+        logger.warning("Бот продолжит работу, но данные гонки недоступны")
     
     try:
         # Получаем информацию о боте
