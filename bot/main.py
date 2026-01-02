@@ -11,7 +11,7 @@ from bot.config import BOT_TOKEN, RACE_START_TIME, CHAT_ID
 from bot.logger import setup_logger
 from bot.race_clock import get_race_status, get_current_lap, is_race_active
 from bot.api_client import RaceDataClient
-from bot.leaderboard import format_start_leaderboard
+from bot.leaderboard import format_start_leaderboard, format_lap_leaderboard
 from bot.state import StateManager
 
 # Настройка логирования
@@ -99,6 +99,31 @@ async def send_start_leaderboard(chat_id: int):
         logger.error(f"❌ Ошибка при отправке стартовой лидерборды в чат {chat_id}: {e}", exc_info=True)
 
 
+async def send_lap_leaderboard(chat_id: int, lap_number: int):
+    """Отправляет лидерборду для конкретного круга в чат."""
+    try:
+        state = state_manager.get_state(chat_id)
+        
+        # Проверяем, не опубликована ли уже лидерборда для этого круга
+        if state.is_lap_published(lap_number):
+            return
+        
+        # Загружаем данные и формируем лидерборду
+        api_client = RaceDataClient()
+        participants = api_client.get_participants_sorted_by_lap(lap_number)
+        leaderboard_text = format_lap_leaderboard(participants, lap_number)
+        
+        # Отправляем сообщение
+        await bot.send_message(chat_id=chat_id, text=leaderboard_text)
+        
+        # Отмечаем, что лидерборда для круга опубликована
+        state.mark_lap_published(lap_number)
+        logger.info(f"✅ Лидерборда для круга {lap_number} отправлена в чат {chat_id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке лидерборды для круга {lap_number} в чат {chat_id}: {e}", exc_info=True)
+
+
 async def check_and_send_start_leaderboard():
     """Проверяет и отправляет стартовую лидерборду при старте гонки."""
     if RACE_START_TIME is None:
@@ -141,8 +166,49 @@ async def check_and_send_start_leaderboard():
         await send_start_leaderboard(chat_id)
 
 
+async def check_and_send_lap_leaderboards():
+    """Проверяет и отправляет лидерборды для завершенных кругов (в конце круга)."""
+    if RACE_START_TIME is None:
+        return
+    
+    # Получаем список чатов для отправки
+    chat_ids = set()
+    if CHAT_ID:
+        chat_ids.add(CHAT_ID)
+    chat_ids.update(active_chats)
+    
+    if not chat_ids:
+        return
+    
+    # Храним предыдущий круг для отслеживания изменений
+    if not hasattr(check_and_send_lap_leaderboards, '_previous_lap'):
+        check_and_send_lap_leaderboards._previous_lap = None
+    
+    # Проверяем текущий круг
+    current_lap = get_current_lap()
+    
+    # Если круг изменился, значит предыдущий круг завершился
+    if check_and_send_lap_leaderboards._previous_lap is not None:
+        if current_lap != check_and_send_lap_leaderboards._previous_lap:
+            # Круг изменился - отправляем лидерборду для завершенного круга
+            completed_lap = check_and_send_lap_leaderboards._previous_lap
+            for chat_id in chat_ids:
+                await send_lap_leaderboard(chat_id, completed_lap)
+    
+    # Если гонка завершена (current_lap = None), но предыдущий круг был 12
+    if current_lap is None and check_and_send_lap_leaderboards._previous_lap == 12:
+        # Отправляем лидерборду для 12-го круга (финальная)
+        for chat_id in chat_ids:
+            await send_lap_leaderboard(chat_id, 12)
+    
+    # Сохраняем текущий круг для следующей проверки
+    check_and_send_lap_leaderboards._previous_lap = current_lap
+
+
+
+
 async def log_race_status():
-    """Периодически логирует статус гонки каждые 5 секунд и проверяет отправку стартовой лидерборды."""
+    """Периодически логирует статус гонки каждые 5 секунд и проверяет отправку лидерборд."""
     while True:
         try:
             status = get_race_status()
@@ -150,6 +216,9 @@ async def log_race_status():
             
             # Проверяем и отправляем стартовую лидерборду при старте гонки
             await check_and_send_start_leaderboard()
+            
+            # Проверяем и отправляем лидерборды для завершенных кругов (в конце круга)
+            await check_and_send_lap_leaderboards()
             
         except Exception as e:
             logger.error(f"Ошибка при получении статуса гонки: {e}", exc_info=True)

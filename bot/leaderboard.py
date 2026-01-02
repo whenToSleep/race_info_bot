@@ -36,14 +36,13 @@ def format_start_leaderboard(participants: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def format_lap_leaderboard(participants: List[Dict[str, Any]], lap_number: int, max_show: int = 20) -> str:
+def format_lap_leaderboard(participants: List[Dict[str, Any]], lap_number: int) -> str:
     """
     Формирует лидерборду для конкретного круга.
     
     Args:
         participants: Список участников, отсортированных по позиции на круге
         lap_number: Номер круга
-        max_show: Максимальное количество участников для отображения
     
     Returns:
         Отформатированная строка с лидербордой
@@ -53,8 +52,8 @@ def format_lap_leaderboard(participants: List[Dict[str, Any]], lap_number: int, 
     
     lines = [f"🏁 <b>КРУГ {lap_number}</b>\n"]
     
-    # Показываем топ участников
-    for idx, participant in enumerate(participants[:max_show], 1):
+    # Показываем всех участников
+    for idx, participant in enumerate(participants, 1):
         team_name = participant.get('team_name', 'Unknown')
         lap_position = participant.get(f'lap{lap_number}', 0)
         start_pos = participant.get('start_position', 0)
@@ -78,22 +77,17 @@ def format_lap_leaderboard(participants: List[Dict[str, Any]], lap_number: int, 
         else:
             change_str = "➡️ 0"
         
-        lines.append(f"{emoji} <b>{team_name}</b> (поз: {lap_position}, {change_str})")
-    
-    # Если участников больше, показываем общее количество
-    if len(participants) > max_show:
-        lines.append(f"\n... и ещё {len(participants) - max_show} участников")
+        lines.append(f"{emoji} <b>{team_name}</b> ({change_str})")
     
     return "\n".join(lines)
 
 
-def format_final_leaderboard(participants: List[Dict[str, Any]], max_show: int = 20) -> str:
+def format_final_leaderboard(participants: List[Dict[str, Any]]) -> str:
     """
     Формирует финальную лидерборду по результатам последнего круга.
     
     Args:
         participants: Список участников, отсортированных по финальной позиции
-        max_show: Максимальное количество участников для отображения
     
     Returns:
         Отформатированная строка с финальной лидербордой
@@ -103,8 +97,8 @@ def format_final_leaderboard(participants: List[Dict[str, Any]], max_show: int =
     
     lines = ["🏁 <b>ФИНАЛЬНЫЕ РЕЗУЛЬТАТЫ</b>\n"]
     
-    # Показываем топ участников
-    for idx, participant in enumerate(participants[:max_show], 1):
+    # Показываем всех участников
+    for idx, participant in enumerate(participants, 1):
         team_name = participant.get('team_name', 'Unknown')
         final_position = participant.get('lap12', 0)
         start_pos = participant.get('start_position', 0)
@@ -129,10 +123,6 @@ def format_final_leaderboard(participants: List[Dict[str, Any]], max_show: int =
             change_str = "➡️ 0"
         
         lines.append(f"{emoji} <b>{team_name}</b> (финал: {final_position}, {change_str})")
-    
-    # Если участников больше, показываем общее количество
-    if len(participants) > max_show:
-        lines.append(f"\n... и ещё {len(participants) - max_show} участников")
     
     return "\n".join(lines)
 
