@@ -1,0 +1,138 @@
+"""Формирование лидерборды для гонки."""
+from typing import List, Dict, Any, Optional
+
+
+def format_start_leaderboard(participants: List[Dict[str, Any]]) -> str:
+    """
+    Формирует стартовую лидерборду по стартовым позициям.
+    
+    Args:
+        participants: Список участников, отсортированных по start_position
+    
+    Returns:
+        Отформатированная строка с лидербордой
+    """
+    if not participants:
+        return "Нет данных об участниках"
+    
+    lines = ["🏁 <b>СТАРТОВАЯ ПОЗИЦИЯ</b>\n"]
+    
+    # Показываем всех участников
+    for idx, participant in enumerate(participants, 1):
+        team_name = participant.get('team_name', 'Unknown')
+        
+        # Форматируем позицию с эмодзи
+        if idx == 1:
+            emoji = "🥇"
+        elif idx == 2:
+            emoji = "🥈"
+        elif idx == 3:
+            emoji = "🥉"
+        else:
+            emoji = f"{idx}."
+        
+        lines.append(f"{emoji} <b>{team_name}</b>")
+    
+    return "\n".join(lines)
+
+
+def format_lap_leaderboard(participants: List[Dict[str, Any]], lap_number: int, max_show: int = 20) -> str:
+    """
+    Формирует лидерборду для конкретного круга.
+    
+    Args:
+        participants: Список участников, отсортированных по позиции на круге
+        lap_number: Номер круга
+        max_show: Максимальное количество участников для отображения
+    
+    Returns:
+        Отформатированная строка с лидербордой
+    """
+    if not participants:
+        return f"Нет данных для круга {lap_number}"
+    
+    lines = [f"🏁 <b>КРУГ {lap_number}</b>\n"]
+    
+    # Показываем топ участников
+    for idx, participant in enumerate(participants[:max_show], 1):
+        team_name = participant.get('team_name', 'Unknown')
+        lap_position = participant.get(f'lap{lap_number}', 0)
+        start_pos = participant.get('start_position', 0)
+        
+        # Форматируем позицию с эмодзи
+        if idx == 1:
+            emoji = "🥇"
+        elif idx == 2:
+            emoji = "🥈"
+        elif idx == 3:
+            emoji = "🥉"
+        else:
+            emoji = f"{idx}."
+        
+        # Показываем изменение позиции относительно старта
+        position_change = start_pos - lap_position
+        if position_change > 0:
+            change_str = f"⬆️ +{position_change}"
+        elif position_change < 0:
+            change_str = f"⬇️ {position_change}"
+        else:
+            change_str = "➡️ 0"
+        
+        lines.append(f"{emoji} <b>{team_name}</b> (поз: {lap_position}, {change_str})")
+    
+    # Если участников больше, показываем общее количество
+    if len(participants) > max_show:
+        lines.append(f"\n... и ещё {len(participants) - max_show} участников")
+    
+    return "\n".join(lines)
+
+
+def format_final_leaderboard(participants: List[Dict[str, Any]], max_show: int = 20) -> str:
+    """
+    Формирует финальную лидерборду по результатам последнего круга.
+    
+    Args:
+        participants: Список участников, отсортированных по финальной позиции
+        max_show: Максимальное количество участников для отображения
+    
+    Returns:
+        Отформатированная строка с финальной лидербордой
+    """
+    if not participants:
+        return "Нет данных о финальных результатах"
+    
+    lines = ["🏁 <b>ФИНАЛЬНЫЕ РЕЗУЛЬТАТЫ</b>\n"]
+    
+    # Показываем топ участников
+    for idx, participant in enumerate(participants[:max_show], 1):
+        team_name = participant.get('team_name', 'Unknown')
+        final_position = participant.get('lap12', 0)
+        start_pos = participant.get('start_position', 0)
+        
+        # Форматируем позицию с эмодзи
+        if idx == 1:
+            emoji = "🥇"
+        elif idx == 2:
+            emoji = "🥈"
+        elif idx == 3:
+            emoji = "🥉"
+        else:
+            emoji = f"{idx}."
+        
+        # Показываем изменение позиции относительно старта
+        position_change = start_pos - final_position
+        if position_change > 0:
+            change_str = f"⬆️ +{position_change}"
+        elif position_change < 0:
+            change_str = f"⬇️ {position_change}"
+        else:
+            change_str = "➡️ 0"
+        
+        lines.append(f"{emoji} <b>{team_name}</b> (финал: {final_position}, {change_str})")
+    
+    # Если участников больше, показываем общее количество
+    if len(participants) > max_show:
+        lines.append(f"\n... и ещё {len(participants) - max_show} участников")
+    
+    return "\n".join(lines)
+

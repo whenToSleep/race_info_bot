@@ -34,3 +34,8 @@ if RACE_START_TIME_STR:
             f"Используйте формат: 'YYYY-MM-DD HH:MM:SS'"
         )
 
+# ID чата для отправки сообщений (опционально, можно указать в .env)
+# Если не указан, бот будет отправлять в чаты, где он добавлен
+CHAT_ID_STR = os.getenv("CHAT_ID", "")
+CHAT_ID = int(CHAT_ID_STR) if CHAT_ID_STR and CHAT_ID_STR.isdigit() else None
+
