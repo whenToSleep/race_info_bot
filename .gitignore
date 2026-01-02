@@ -2,10 +2,10 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+.idea
 # C extensions
 *.so
-
+.env
 # Distribution / packaging
 .Python
 build/
@@ -116,6 +116,7 @@ ipython_config.py
 #pdm.toml
 .pdm-python
 .pdm-build/
+.venv
 
 # pixi
 #   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
