@@ -3,16 +3,20 @@ import asyncio
 import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
-from aiogram.types import ChatMemberUpdated, Update, Message
+from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER, Command
+from aiogram.types import ChatMemberUpdated, Update, Message, CallbackQuery
 from aiogram.client.default import DefaultBotProperties
 
-from bot.config import BOT_TOKEN, RACE_START_TIME, CHAT_ID
+from bot.settings import BOT_TOKEN, RACE_START_TIME, CHAT_ID
 from bot.logger import setup_logger
 from bot.race_clock import get_race_status, get_current_lap, is_race_active
 from bot.api_client import RaceDataClient
 from bot.leaderboard import format_start_leaderboard, format_lap_leaderboard
 from bot.state import StateManager
+from bot.user_handlers import validate_user_identifier
+from bot.user_state import UserStateManager
+from bot.keyboards import get_language_keyboard
+from bot.config.language_config import LANGUAGE_MESSAGES, DEFAULT_LANGUAGE
 
 # Настройка логирования
 logger = setup_logger()
@@ -24,19 +28,122 @@ dp = Dispatcher()
 # Менеджер состояний для чатов
 state_manager = StateManager()
 
+# Менеджер состояний для пользователей (user-mode)
+user_state_manager = UserStateManager()
+
 # Список активных чатов (где бот добавлен)
 active_chats: set[int] = set()
 
-# Бот не обрабатывает команды - только публикует сообщения автоматически
+# Бот не обрабатывает команды в группах - только публикует сообщения автоматически
+# В личных сообщениях обрабатывает ввод пользователя (user-mode)
+
+
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    """Обработчик команды /start в личных сообщениях."""
+    if message.chat.type != "private":
+        return
+    
+    # Всегда показываем выбор языка на английском при первом запуске
+    messages = LANGUAGE_MESSAGES["en"]
+    await message.answer(
+        messages["choose_language"],
+        reply_markup=get_language_keyboard()
+    )
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("language_"))
+async def process_language_choice(callback: CallbackQuery):
+    """Обработчик выбора языка."""
+    try:
+        language = callback.data.split("_")[1]
+        user_id = callback.from_user.id
+        
+        # Сохраняем выбор языка
+        user_state_manager.set_language(user_id, language)
+        
+        # Показываем начальное сообщение на выбранном языке
+        messages = LANGUAGE_MESSAGES[language]
+        await callback.message.edit_text(messages["start"])
+        
+        # Уведомление на выбранном языке
+        lang_names = {"ru": "Русский", "en": "English", "uk": "Українська"}
+        await callback.answer(f"Language: {lang_names.get(language, language.upper())}")
+    except Exception as e:
+        logger.error(f"Ошибка в process_language_choice: {e}", exc_info=True)
+        await callback.answer("Произошла ошибка. Попробуйте позже.")
+
+
+@dp.message(Command("language"))
+async def cmd_language(message: Message):
+    """Обработчик команды /language для смены языка."""
+    if message.chat.type != "private":
+        return
+    
+    # Показываем выбор языка на английском
+    messages = LANGUAGE_MESSAGES["en"]
+    await message.answer(
+        messages["choose_language"],
+        reply_markup=get_language_keyboard()
+    )
+
+
+@dp.message(lambda m: m.chat.type == "private" and m.text and not m.text.startswith('/'))
+async def handle_user_input(message: Message):
+    """Обработчик ввода пользователя в личных сообщениях (user-mode)."""
+    user_id = message.from_user.id
+    user_input = message.text.strip()
+    user_state = user_state_manager.get_state(user_id)
+    language = user_state.language
+    messages = LANGUAGE_MESSAGES[language]
+    
+    logger.info(f"Пользователь {user_id} ввёл: {user_input}")
+    
+    try:
+        # Загружаем данные гонки
+        api_client = RaceDataClient()
+        data = api_client.get_data()
+        
+        # Валидируем ввод пользователя
+        result = validate_user_identifier(data, user_input)
+        
+        if result is None:
+            # Сущность не найдена
+            await message.answer(messages["not_found"].format(input=user_input))
+            return
+        
+        entity_type, entity_value, participant_data = result
+        
+        # Сохраняем выбор пользователя
+        user_state_manager.set_tracked_entity(user_id, entity_type, entity_value)
+        
+        # Формируем сообщение
+        entity_display = messages[entity_type].format(value=entity_value)
+        await message.answer(
+            messages["found"].format(
+                entity_display=entity_display,
+                team_name=participant_data.get('team_name', 'Unknown'),
+                start_position=participant_data.get('start_position', 0)
+            )
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода пользователя {user_id}: {e}", exc_info=True)
+        await message.answer(messages["error"])
 
 
 @dp.message()
 async def on_any_message(message: Message):
-    """Обработчик любых сообщений для регистрации чатов, где бот уже находится."""
+    """Обработчик любых сообщений для регистрации чатов (group-mode)."""
     chat_id = message.chat.id
-    chat_title = message.chat.title or message.chat.first_name or "личный чат"
     
-    # Регистрируем чат, если он ещё не зарегистрирован
+    # Пропускаем личные сообщения (они обрабатываются отдельно)
+    if message.chat.type == "private":
+        return
+    
+    # Для групп/каналов - регистрируем чат
+    chat_title = message.chat.title or "группа"
+    
     if chat_id not in active_chats:
         active_chats.add(chat_id)
         logger.info(f"📝 Обнаружен чат {chat_id} ({chat_title}) через сообщение")
