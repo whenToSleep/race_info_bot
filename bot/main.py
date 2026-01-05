@@ -3,16 +3,20 @@ import asyncio
 import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER
-from aiogram.types import ChatMemberUpdated, Update, Message
+from aiogram.filters import ChatMemberUpdatedFilter, IS_MEMBER, IS_NOT_MEMBER, Command
+from aiogram.types import ChatMemberUpdated, Update, Message, CallbackQuery
 from aiogram.client.default import DefaultBotProperties
 
-from bot.config import BOT_TOKEN, RACE_START_TIME, CHAT_ID
+from bot.settings import BOT_TOKEN, RACE_START_TIME, CHAT_ID, CHAT_ID_STR, TOTAL_LAPS
 from bot.logger import setup_logger
 from bot.race_clock import get_race_status, get_current_lap, is_race_active
 from bot.api_client import RaceDataClient
-from bot.leaderboard import format_start_leaderboard, format_lap_leaderboard
+from bot.leaderboard import format_start_leaderboard, format_lap_leaderboard, format_user_leaderboard
 from bot.state import StateManager
+from bot.user_handlers import validate_user_identifier
+from bot.user_state import UserStateManager
+from bot.keyboards import get_language_keyboard, get_stop_tracking_keyboard, get_empty_keyboard
+from bot.config.language_config import LANGUAGE_MESSAGES, DEFAULT_LANGUAGE
 
 # Настройка логирования
 logger = setup_logger()
@@ -24,19 +28,146 @@ dp = Dispatcher()
 # Менеджер состояний для чатов
 state_manager = StateManager()
 
+# Менеджер состояний для пользователей (user-mode)
+user_state_manager = UserStateManager()
+
 # Список активных чатов (где бот добавлен)
 active_chats: set[int] = set()
 
-# Бот не обрабатывает команды - только публикует сообщения автоматически
+# Бот не обрабатывает команды в группах - только публикует сообщения автоматически
+# В личных сообщениях обрабатывает ввод пользователя (user-mode)
 
 
-@dp.message()
-async def on_any_message(message: Message):
-    """Обработчик любых сообщений для регистрации чатов, где бот уже находится."""
-    chat_id = message.chat.id
-    chat_title = message.chat.title or message.chat.first_name or "личный чат"
+@dp.message(Command("start"))
+async def cmd_start(message: Message):
+    """Обработчик команды /start в личных сообщениях."""
+    if message.chat.type != "private":
+        return
     
-    # Регистрируем чат, если он ещё не зарегистрирован
+    # Всегда показываем выбор языка на английском при первом запуске
+    messages = LANGUAGE_MESSAGES["en"]
+    await message.answer(
+        messages["choose_language"],
+        reply_markup=get_language_keyboard()
+    )
+
+
+@dp.callback_query(lambda c: c.data and c.data.startswith("language_"))
+async def process_language_choice(callback: CallbackQuery):
+    """Обработчик выбора языка."""
+    try:
+        language = callback.data.split("_")[1]
+        user_id = callback.from_user.id
+        
+        # Сохраняем выбор языка
+        user_state_manager.set_language(user_id, language)
+        
+        # Показываем начальное сообщение на выбранном языке
+        messages = LANGUAGE_MESSAGES[language]
+        await callback.message.edit_text(messages["start"])
+        
+        # Уведомление на выбранном языке
+        lang_names = {"ru": "Русский", "en": "English", "uk": "Українська"}
+        await callback.answer(f"Language: {lang_names.get(language, language.upper())}")
+    except Exception as e:
+        logger.error(f"Ошибка в process_language_choice: {e}", exc_info=True)
+        await callback.answer("Произошла ошибка. Попробуйте позже.")
+
+
+@dp.message(Command("language"))
+async def cmd_language(message: Message):
+    """Обработчик команды /language для смены языка."""
+    if message.chat.type != "private":
+        return
+    
+    # Показываем выбор языка на английском
+    messages = LANGUAGE_MESSAGES["en"]
+    await message.answer(
+        messages["choose_language"],
+        reply_markup=get_language_keyboard()
+    )
+
+
+@dp.message(lambda m: m.chat.type == "private" and m.text and not m.text.startswith('/'))
+async def handle_user_input(message: Message):
+    """Обработчик ввода пользователя и кнопки 'Прекратить отслеживание'."""
+    user_id = message.from_user.id
+    user_state = user_state_manager.get_state(user_id)
+    language = user_state.language
+    messages = LANGUAGE_MESSAGES[language]
+    
+    # Проверяем, не нажата ли кнопка "Прекратить отслеживание"
+    if message.text == messages["stop_tracking"]:
+        if user_state.is_tracking:
+            # Останавливаем отслеживание
+            user_state.is_tracking = False
+            await message.answer(
+                messages["tracking_stopped"],
+                reply_markup=get_empty_keyboard()
+            )
+        else:
+            await message.answer(messages.get("tracking_not_active", "Отслеживание не активно."))
+        return
+    
+    # Обрабатываем обычный ввод (кошелёк или команда)
+    user_input = message.text.strip()
+    
+    logger.info(f"Пользователь {user_id} ввёл: {user_input}")
+    
+    try:
+        # Загружаем данные гонки
+        api_client = RaceDataClient()
+        data = api_client.get_data()
+        
+        # Валидируем ввод пользователя
+        result = validate_user_identifier(data, user_input)
+        
+        if result is None:
+            # Сущность не найдена
+            await message.answer(messages["not_found"].format(input=user_input))
+            return
+        
+        entity_type, entity_value, participant_data = result
+        
+        # Получаем состояние пользователя
+        user_state = user_state_manager.get_state(user_id)
+        
+        # Проверяем, не отслеживается ли уже эта сущность
+        if user_state.is_tracking and user_state.entity_type == entity_type and user_state.entity_value == entity_value:
+            # Уже отслеживается
+            entity_display = messages[entity_type].format(value=entity_value)
+            await message.answer(messages["tracking_already_active"].format(entity_display=entity_display))
+            return
+        
+        # Сохраняем выбор пользователя и включаем отслеживание
+        user_state_manager.set_tracked_entity(user_id, entity_type, entity_value)
+        user_state.is_tracking = True
+        user_state.last_sent_lap = 0  # Сбрасываем счётчик отправленных кругов
+        
+        # Формируем сообщение
+        entity_display = messages[entity_type].format(value=entity_value)
+        await message.answer(
+            messages["found"].format(
+                entity_display=entity_display,
+                team_name=participant_data.get('team_name', 'Unknown'),
+                start_position=participant_data.get('start_position', 0)
+            ),
+            reply_markup=get_stop_tracking_keyboard(language)
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке ввода пользователя {user_id}: {e}", exc_info=True)
+        await message.answer(messages["error"])
+
+
+@dp.message(lambda m: m.chat.type != "private")
+async def on_any_message(message: Message):
+    """Обработчик любых сообщений для регистрации чатов (group-mode)."""
+    chat_id = message.chat.id
+    
+    # Для групп/каналов - регистрируем чат
+    chat_title = message.chat.title or "группа"
+    
     if chat_id not in active_chats:
         active_chats.add(chat_id)
         logger.info(f"📝 Обнаружен чат {chat_id} ({chat_title}) через сообщение")
@@ -205,6 +336,102 @@ async def check_and_send_lap_leaderboards():
     check_and_send_lap_leaderboards._previous_lap = current_lap
 
 
+async def send_user_updates():
+    """Отправляет персональные обновления пользователям по каждому завершенному кругу (в конце круга)."""
+    if RACE_START_TIME is None:
+        return
+    
+    # Храним предыдущий круг для отслеживания изменений
+    if not hasattr(send_user_updates, '_previous_lap'):
+        send_user_updates._previous_lap = None
+    
+    # Проверяем текущий круг
+    current_lap = get_current_lap()
+    
+    # Если круг изменился, значит предыдущий круг завершился
+    completed_lap = None
+    if send_user_updates._previous_lap is not None:
+        if current_lap != send_user_updates._previous_lap:
+            # Круг изменился - отправляем обновление для завершенного круга
+            completed_lap = send_user_updates._previous_lap
+    
+    # Если гонка завершена (current_lap = None), но предыдущий круг был 12
+    if current_lap is None and send_user_updates._previous_lap == 12:
+        # Отправляем обновление для 12-го круга (финальная)
+        completed_lap = 12
+    
+    # Сохраняем текущий круг для следующей проверки
+    send_user_updates._previous_lap = current_lap
+    
+    # Если нет завершенного круга, ничего не делаем
+    if completed_lap is None:
+        return
+    
+    # Получаем всех пользователей с активным отслеживанием
+    tracking_users = []
+    for user_id, user_state in user_state_manager._states.items():
+        if user_state.is_tracking and user_state.entity_type and user_state.entity_value:
+            # Проверяем, нужно ли отправить обновление для завершенного круга
+            if user_state.last_sent_lap < completed_lap:
+                tracking_users.append((user_id, user_state))
+    
+    if not tracking_users:
+        return
+    
+    try:
+        # Загружаем данные гонки
+        api_client = RaceDataClient()
+        
+        # Получаем лидерборду завершенного круга
+        completed_leaderboard = api_client.get_participants_sorted_by_lap(completed_lap)
+        
+        # Получаем лидерборду предыдущего круга (если есть)
+        previous_leaderboard = None
+        if completed_lap > 1:
+            try:
+                previous_leaderboard = api_client.get_participants_sorted_by_lap(completed_lap - 1)
+            except Exception:
+                pass  # Если нет данных для предыдущего круга, игнорируем
+        
+        # Отправляем обновления каждому пользователю
+        for user_id, user_state in tracking_users:
+            try:
+                # Формируем персональную лидерборду для завершенного круга
+                leaderboard_text = format_user_leaderboard(
+                    leaderboard=completed_leaderboard,
+                    lap_number=completed_lap,
+                    total_laps=TOTAL_LAPS,
+                    entity_type=user_state.entity_type,
+                    entity_value=user_state.entity_value,
+                    previous_lap_leaderboard=previous_leaderboard,
+                    language=user_state.language
+                )
+                
+                # Отправляем сообщение с повторными попытками при ошибке
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        await bot.send_message(
+                            chat_id=user_id,
+                            text=leaderboard_text,
+                            reply_markup=get_stop_tracking_keyboard(user_state.language)
+                        )
+                        # Обновляем счётчик отправленных кругов
+                        user_state.last_sent_lap = completed_lap
+                        logger.info(f"✅ Персональное обновление отправлено пользователю {user_id} для круга {completed_lap}")
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            logger.warning(f"⚠️ Ошибка при отправке пользователю {user_id} (попытка {attempt + 1}/{max_retries}): {e}")
+                            await asyncio.sleep(2)  # Пауза перед повторной попыткой
+                        else:
+                            logger.error(f"❌ Не удалось отправить обновление пользователю {user_id} после {max_retries} попыток: {e}", exc_info=True)
+                            
+            except Exception as e:
+                logger.error(f"❌ Ошибка при формировании обновления для пользователя {user_id}: {e}", exc_info=True)
+                
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке пользовательских обновлений: {e}", exc_info=True)
 
 
 async def log_race_status():
@@ -219,6 +446,9 @@ async def log_race_status():
             
             # Проверяем и отправляем лидерборды для завершенных кругов (в конце круга)
             await check_and_send_lap_leaderboards()
+            
+            # Отправляем персональные обновления пользователям (user-mode)
+            await send_user_updates()
             
         except Exception as e:
             logger.error(f"Ошибка при получении статуса гонки: {e}", exc_info=True)
@@ -260,6 +490,8 @@ async def main():
             logger.info(f"📋 CHAT_ID указан в конфиге: {CHAT_ID} (добавлен в активные чаты)")
         else:
             logger.info("📋 CHAT_ID не указан. Бот будет регистрировать чаты автоматически при получении обновлений.")
+            if CHAT_ID_STR:
+                logger.warning(f"⚠️ CHAT_ID_STR из .env: '{CHAT_ID_STR}' - не удалось преобразовать в число")
             logger.info("💡 Подсказка: отправьте любое сообщение в чат, где находится бот, чтобы он его зарегистрировал")
             logger.info("💡 Или укажите CHAT_ID в .env файле для автоматической отправки")
         

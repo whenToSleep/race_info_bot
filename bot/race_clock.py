@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional
 
-from bot.config import RACE_START_TIME, LAP_DURATION, TOTAL_LAPS
+from bot.settings import RACE_START_TIME, LAP_DURATION, TOTAL_LAPS
 
 
 def get_current_lap(now: Optional[datetime] = None) -> Optional[int]:
