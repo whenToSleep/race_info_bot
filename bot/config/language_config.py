@@ -25,8 +25,12 @@ LANGUAGE_MESSAGES = {
             "✅ Найдено: {entity_display}\n\n"
             "Команда: <b>{team_name}</b>\n"
             "Стартовая позиция: {start_position}\n\n"
-            "Используйте /track для начала отслеживания."
+            "Отслеживание начато! Вы будете получать обновления по каждому кругу."
         ),
+        "stop_tracking": "Прекратить отслеживание",
+        "tracking_stopped": "Отслеживание прекращено.",
+        "tracking_already_active": "Отслеживание уже активно для: {entity_display}",
+        "tracking_not_active": "Отслеживание не активно.",
         "error": "❌ Произошла ошибка при обработке запроса. Попробуйте позже.",
         "account": "кошелёк <b>{value}</b>",
         "team": "команда <b>{value}</b>",
@@ -37,6 +41,8 @@ LANGUAGE_MESSAGES = {
         "lap_leaderboard": "🏁 <b>КРУГ {lap_number}</b>\n",
         "no_data": "Нет данных об участниках",
         "no_data_lap": "Нет данных для круга {lap_number}",
+        "lap": "Круг",
+        "you_place": "Вы: {position} место",
     },
     "en": {
         "start": (
@@ -63,8 +69,12 @@ LANGUAGE_MESSAGES = {
             "✅ Found: {entity_display}\n\n"
             "Team: <b>{team_name}</b>\n"
             "Start position: {start_position}\n\n"
-            "Use /track to start tracking."
+            "Tracking started! You will receive updates for each lap."
         ),
+        "stop_tracking": "Stop Tracking",
+        "tracking_stopped": "Tracking stopped.",
+        "tracking_already_active": "Tracking is already active for: {entity_display}",
+        "tracking_not_active": "Tracking is not active.",
         "error": "❌ An error occurred while processing the request. Please try again later.",
         "account": "wallet <b>{value}</b>",
         "team": "team <b>{value}</b>",
@@ -75,6 +85,8 @@ LANGUAGE_MESSAGES = {
         "lap_leaderboard": "🏁 <b>LAP {lap_number}</b>\n",
         "no_data": "No participant data",
         "no_data_lap": "No data for lap {lap_number}",
+        "lap": "Lap",
+        "you_place": "You: {position} place",
     },
     "uk": {
         "start": (
@@ -101,8 +113,12 @@ LANGUAGE_MESSAGES = {
             "✅ Знайдено: {entity_display}\n\n"
             "Команда: <b>{team_name}</b>\n"
             "Стартова позиція: {start_position}\n\n"
-            "Використовуйте /track для початку відстеження."
+            "Відстеження розпочато! Ви будете отримувати оновлення по кожному колу."
         ),
+        "stop_tracking": "Припинити відстеження",
+        "tracking_stopped": "Відстеження припинено.",
+        "tracking_already_active": "Відстеження вже активне для: {entity_display}",
+        "tracking_not_active": "Відстеження не активне.",
         "error": "❌ Сталася помилка під час обробки запиту. Спробуйте пізніше.",
         "account": "гаманець <b>{value}</b>",
         "team": "команда <b>{value}</b>",
@@ -113,6 +129,8 @@ LANGUAGE_MESSAGES = {
         "lap_leaderboard": "🏁 <b>КРУГ {lap_number}</b>\n",
         "no_data": "Немає даних про учасників",
         "no_data_lap": "Немає даних для круга {lap_number}",
+        "lap": "Круг",
+        "you_place": "Ви: {position} місце",
     }
 }
 
